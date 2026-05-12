@@ -1,0 +1,92 @@
+# CLAUDE.md Manager — PRD v1.0
+
+## What This Is
+A local Node.js web app that lets you define a canonical `CLAUDE.md`, diffs it against every GitHub repo you own, shows which repos are out of sync, and lets you push updates directly to `main` in one click.
+
+## Who It's For
+Chris Treadaway, running locally on Mac. Single user, no auth needed.
+
+## User Stories
+- As a developer, I want to type (or paste) my canonical CLAUDE.md content into a text editor so I have one source of truth
+- As a developer, I want to see which repos match, which differ, and which are missing CLAUDE.md entirely
+- As a developer, I want to push my canonical content to all out-of-sync repos at once, or repo by repo
+- As a developer, I want a log of every action taken so I can debug failures
+
+## Core Features
+
+### 1. Canonical Editor
+- Full-height textarea for entering/editing the canonical CLAUDE.md content
+- "Save Canonical" button — persists to `~/claude-md-updater/canonical.md` on disk
+- On app load, pre-populates from saved canonical if it exists
+
+### 2. Repo Scanner
+- "Scan Repos" button — calls GitHub CLI to list all non-archived repos
+- For each repo, fetches the current CLAUDE.md content via `gh api`
+- Computes status per repo:
+  - IN SYNC — content matches canonical exactly
+  - DIFFERENT — file exists but content differs
+  - MISSING — no CLAUDE.md found
+- Shows repo count summary: X in sync, Y different, Z missing
+
+### 3. Diff View
+- Each out-of-sync repo shows a unified diff (current vs canonical)
+- MISSING repos show "no file" on left side
+
+### 4. Update Controls
+- "Update All Out-of-Sync" button — pushes canonical to all DIFFERENT + MISSING repos
+- Per-repo "Update" button for selective updates
+- Each update: commits directly to default branch (main), no new branch, no PR
+- Commit message: `chore: sync CLAUDE.md to canonical [automated]`
+
+### 5. Activity Log
+- Scrollable log panel at bottom of UI
+- Every action logged: scan start/end, per-repo status, push success/fail
+- Errors shown in red
+- Log also written to `~/claude-md-updater/logs/run-YYYYMMDD-HHMMSS.log`
+
+## Business Rules
+- Idempotent: pushing canonical to an already-in-sync repo is a no-op
+- If a repo push fails (e.g. branch protection), log error and continue — do not crash
+- Canonical content stored at `~/claude-md-updater/canonical.md`
+- App runs on `http://localhost:3333`
+
+## Tech Stack
+- Backend: Node.js + Express
+- Frontend: Single HTML page served by Express — vanilla JS
+- GitHub access: GitHub CLI (`gh`) — must be authenticated before running
+- Diff: `diff` npm package
+- No database — canonical stored as flat file, logs as flat files
+
+## Logging Infrastructure
+- All backend actions logged via `winston`
+- Log format: `[TIMESTAMP] [LEVEL] [REPO] message`
+- Per-run log file: `~/claude-md-updater/logs/run-YYYYMMDD-HHMMSS.log`
+- Frontend activity log panel polls `/api/log` for real-time display
+
+## Data Requirements
+- `~/claude-md-updater/canonical.md` — source of truth
+- `~/claude-md-updater/logs/` — timestamped log files per run
+- No other persistent state
+
+## Dependencies
+- `gh` GitHub CLI (authenticated)
+- Node packages: `express`, `diff`, `winston`
+
+## Out of Scope
+- Multi-user support
+- Branch management or PR creation
+- Modifying any file other than CLAUDE.md
+- Web hosting — local only
+
+## Security & NPM Hygiene (Applied to This Project)
+- Use `sfw npm install` for all installs
+- Run `npm audit` before running
+- Add `min-release-age=7` to `.npmrc`
+
+## Success Criteria
+- App loads at localhost:3333
+- Canonical editor pre-populates from saved file on load
+- Scan correctly identifies IN SYNC / DIFFERENT / MISSING across all repos
+- Update pushes canonical directly to main, confirmed in GitHub
+- Log file written after each session
+- Safe to re-run — no duplicate commits if already in sync
