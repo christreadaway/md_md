@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CLAUDE.md Manager</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%237b61ff'/%3E%3Ctext x='8' y='12' font-family='monospace' font-size='10' font-weight='700' text-anchor='middle' fill='white'%3Em%3C/text%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+<header role="banner">
+  <div class="brand">
+    <div class="brand-mark" aria-hidden="true">m</div>
+    <h1>CLAUDE.md Manager</h1>
+  </div>
+  <span class="badge-host" id="host-badge">localhost:3333</span>
+  <span class="spacer"></span>
+  <span class="scanning-indicator" id="scanning-label" role="status" aria-live="polite" hidden>
+    <span class="dot"></span>Scanning&hellip;
+  </span>
+</header>
+
+<main class="main" role="main">
+
+  <section class="editor-panel" aria-label="Canonical editor">
+    <div class="panel-header">
+      <span class="panel-title">Canonical CLAUDE.md</span>
+      <span class="byte-count" id="byte-count" aria-live="polite">0 bytes</span>
+    </div>
+    <textarea
+      id="canonical"
+      spellcheck="false"
+      autocomplete="off"
+      autocorrect="off"
+      autocapitalize="off"
+      placeholder="Paste or type your canonical CLAUDE.md content here. Save when ready, then scan."
+      aria-label="Canonical CLAUDE.md content"
+    ></textarea>
+    <div class="editor-footer">
+      <button class="btn btn-ghost" id="btn-save" type="button">
+        <span class="btn-label">Save Canonical</span>
+        <kbd class="kbd">&#8984;S</kbd>
+      </button>
+      <button class="btn btn-primary" id="btn-scan" type="button">Scan Repos</button>
+      <span class="save-status" id="save-status" aria-live="polite"></span>
+    </div>
+  </section>
+
+  <section class="results-panel" aria-label="Repository results">
+    <div class="results-header">
+      <span class="panel-title">Repos</span>
+      <span class="summary-pill pill-green" id="pill-sync" hidden></span>
+      <span class="summary-pill pill-yellow" id="pill-diff" hidden></span>
+      <span class="summary-pill pill-red" id="pill-miss" hidden></span>
+      <span class="summary-pill pill-error" id="pill-err" hidden></span>
+      <span class="spacer"></span>
+      <div class="filter-group" id="filter-group" hidden>
+        <input
+          type="search"
+          id="filter-input"
+          class="filter-input"
+          placeholder="Filter repos&hellip;"
+          aria-label="Filter repos"
+        />
+        <button class="btn btn-ghost btn-sm" id="btn-update-all" hidden>Update All Out-of-Sync</button>
+      </div>
+    </div>
+    <div class="results-list" id="results-list" aria-live="polite">
+      <div class="empty-state">
+        <div class="empty-state-icon" aria-hidden="true">&#9633;</div>
+        <div class="empty-state-title">No scan yet</div>
+        <div class="empty-state-body">Save your canonical content, then click Scan Repos.</div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<aside class="log-panel" aria-label="Activity log">
+  <div class="panel-header">
+    <span class="panel-title">Activity Log</span>
+    <span class="log-count" id="log-count">0 entries</span>
+    <span class="spacer"></span>
+    <label class="toggle">
+      <input type="checkbox" id="log-autoscroll" checked />
+      <span>auto-scroll</span>
+    </label>
+    <button class="btn btn-ghost btn-sm" id="btn-clear-log" type="button">Clear</button>
+  </div>
+  <div class="log-body" id="log-body" tabindex="0"></div>
+</aside>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="/app.js"></script>
+</body>
+</html>
