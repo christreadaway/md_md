@@ -59,9 +59,21 @@ Chris Treadaway, running locally on Mac. Single user, no auth needed.
 
 ## Business Rules
 - Idempotent: pushing canonical to an already-in-sync repo is a no-op
-- If a repo push fails (e.g. branch protection), log error and continue — do not crash
+- If a repo push fails (e.g. branch protection), log error and continue &mdash; do not crash
 - Canonical content stored at `~/claude-md-updater/canonical.md`
 - App runs on `http://localhost:3333`
+
+### Distribute File validation
+- Filenames must match `[A-Za-z0-9._\-/]+\.md` and must not start with `/` or contain `..` &mdash; rejected with 400
+- Every repo target must be a non-empty string in `owner/name` form &mdash; rejected with 400
+- Content must be a non-empty string &mdash; rejected with 400
+- Validation applies on both `/api/update` and `/api/distribute` so malformed payloads cannot reach the GitHub client
+
+### Race safety
+- Double-clicking the push button is a no-op &mdash; second invocation returns immediately
+- During an in-flight distribute push, the filename input, content textarea, commit-message input, overwrite toggle, Select All / Clear / Reload buttons, and every repo checkbox are disabled
+- Manual Reload during a push is blocked
+- On a successful repo reload, selections and per-repo status badges for repos that disappeared (renamed/archived) are dropped so the &ldquo;N selected&rdquo; pill never lies
 
 ## Tech Stack
 - Backend: Node.js + Express
@@ -88,8 +100,8 @@ Chris Treadaway, running locally on Mac. Single user, no auth needed.
 ## Out of Scope
 - Multi-user support
 - Branch management or PR creation
-- Modifying any file other than CLAUDE.md
-- Web hosting — local only
+- Modifying any file that does not end in `.md` (the validator rejects other extensions)
+- Web hosting &mdash; local only
 
 ## Security & NPM Hygiene (Applied to This Project)
 - Use `sfw npm install` for all installs

@@ -144,11 +144,16 @@ node --test test/diff-status.test.js
 
 ## Behavior notes
 
-- **Idempotent** &mdash; scanning an already-in-sync repo never triggers a push. Even if you pass an in-sync repo to `/api/update`, the server checks current content and skips.
+- **Idempotent** &mdash; scanning an already-in-sync repo never triggers a push. Even if you pass an in-sync repo to `/api/update` or `/api/distribute`, the server checks current content and skips.
 - **Branch protection** &mdash; if a repo has push protection on `main`, the update will fail and log an error in red. Handle those repos manually or disable protection temporarily.
-- **Concurrent scans** &mdash; the scanner queries up to 5 repos in parallel by default.
+- **Concurrent scans** &mdash; the scanner queries up to 5 repos in parallel by default. Distribute pushes are sequential (safer with rate limits and branch protection diagnostics).
 - **Whitespace tolerance** &mdash; trailing whitespace and `\r\n` vs `\n` differences are treated as in-sync.
 - **Safe to re-run** any time your canonical changes.
+- **Strict validation** on `/api/update` and `/api/distribute`:
+  - Filenames must match `[A-Za-z0-9._\-/]+\.md` and cannot start with `/` or contain `..`
+  - Every repo target must be `owner/name` &mdash; malformed payloads are rejected with 400 before any GitHub call
+- **Race-safe Distribute** &mdash; double-click on Push is a no-op; the filename / content / commit-message / overwrite / Reload / Select All / Clear controls and all repo checkboxes lock during the in-flight push
+- **Stale selection cleanup** &mdash; reloading the repo list removes selections and status badges for repos that no longer exist (archived or renamed)
 
 ## Troubleshooting
 

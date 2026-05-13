@@ -516,6 +516,7 @@
 
   // ── Distribute: repo list ────────────────────────────────────────────
   async function loadRepos() {
+    if (state.distribute.loading || state.distribute.pushing) return;
     state.distribute.loading = true;
     els.btnReloadRepos.disabled = true;
     els.distributeRepoList.innerHTML = '<div class="empty-state"><div class="empty-state-icon" aria-hidden="true">&hellip;</div><div class="empty-state-title">Loading&hellip;</div><div class="empty-state-body">Fetching your GitHub repos.</div></div>';
@@ -525,9 +526,15 @@
       if (!r.ok || !d.ok) throw new Error(d.error || `HTTP ${r.status}`);
       state.distribute.repos = d.repos || [];
       state.distribute.loaded = true;
-      state.distribute.statusByRepo = new Map();
+      const liveNames = new Set(state.distribute.repos.map((x) => x.nameWithOwner));
+      for (const name of [...state.distribute.selected]) {
+        if (!liveNames.has(name)) state.distribute.selected.delete(name);
+      }
+      for (const name of [...state.distribute.statusByRepo.keys()]) {
+        if (!liveNames.has(name)) state.distribute.statusByRepo.delete(name);
+      }
       renderRepoList();
-      showToast(`Loaded ${d.repos.length} repos`, 'success');
+      showToast(`Loaded ${state.distribute.repos.length} repos`, 'success');
     } catch (err) {
       els.distributeRepoList.innerHTML = '';
       const empty = document.createElement('div');
@@ -553,10 +560,12 @@
       return;
     }
     const q = state.distribute.filterText.toLowerCase().trim();
+    let shown = 0;
     for (const repo of repos) {
       const name = repo.nameWithOwner;
       const matches = !q || name.toLowerCase().includes(q);
       if (!matches) continue;
+      shown++;
       const row = document.createElement('label');
       row.className = 'repo-row';
       row.dataset.repo = name;
@@ -593,6 +602,12 @@
       row.appendChild(status);
       list.appendChild(row);
     }
+    if (shown === 0 && q) {
+      const empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.innerHTML = `<div class="empty-state-icon" aria-hidden="true">&#9633;</div><div class="empty-state-title">No matches</div><div class="empty-state-body">No repos match &ldquo;${escapeHtml(q)}&rdquo;.</div>`;
+      list.appendChild(empty);
+    }
     updateDistributeControls();
   }
 
@@ -612,10 +627,21 @@
     els.distributeSelectedPill.textContent = `${count} selected`;
     const filename = els.distributeFilename.value.trim();
     const content = els.distributeContent.value;
-    const ready = count > 0 && filename.length > 0 && content.trim().length > 0 && !state.distribute.pushing;
+    const pushing = state.distribute.pushing;
+    const ready = count > 0 && filename.length > 0 && content.trim().length > 0 && !pushing;
     els.btnDistribute.disabled = !ready;
     els.btnDistribute.textContent = `Push to ${count} ${count === 1 ? 'Repo' : 'Repos'}`;
     els.distributeByteCount.textContent = formatBytes(byteLength(content));
+    els.btnReloadRepos.disabled = pushing || state.distribute.loading;
+    els.btnSelectAll.disabled = pushing;
+    els.btnSelectNone.disabled = pushing;
+    els.distributeFilename.disabled = pushing;
+    els.distributeMessage.disabled = pushing;
+    els.distributeContent.disabled = pushing;
+    els.distributeOverwrite.disabled = pushing;
+    for (const cb of els.distributeRepoList.querySelectorAll('input[type=checkbox]')) {
+      cb.disabled = pushing;
+    }
   }
 
   function distributeFilenameDefaultMessage() {
@@ -626,6 +652,7 @@
 
   // ── Distribute: push ─────────────────────────────────────────────────
   async function distributePush() {
+    if (state.distribute.pushing) return;
     const filename = els.distributeFilename.value.trim();
     const content = els.distributeContent.value;
     const overwrite = els.distributeOverwrite.checked;
@@ -637,6 +664,10 @@
     if (targets.length === 0 || !filename || !content.trim()) return;
     if (!/^[A-Za-z0-9._\-/]+\.md$/.test(filename)) {
       showToast('Filename must end with .md and contain only letters, digits, ., _, -, /', 'error');
+      return;
+    }
+    if (filename.startsWith('/') || filename.includes('..')) {
+      showToast('Filename must be a relative path without ".."', 'error');
       return;
     }
 
