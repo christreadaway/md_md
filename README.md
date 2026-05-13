@@ -1,6 +1,9 @@
 # CLAUDE.md Manager
 
-Local web app to keep `CLAUDE.md` in sync across all your GitHub repos. Paste your canonical content, scan to see what's different, push in one click.
+Local web app for managing markdown files across your GitHub repos. Two modes:
+
+1. **Sync Canonical** &mdash; keep a single canonical `CLAUDE.md` in sync everywhere. Paste, scan, diff, push.
+2. **Distribute File** &mdash; introduce any new `.md` file (e.g., `AGENTS.md`, `SECURITY.md`, `docs/CONTRIBUTING.md`) to a hand-picked set of repos in one shot.
 
 Runs on `http://localhost:3333`. Single-user. No auth. No PRs &mdash; pushes go straight to the default branch.
 
@@ -42,6 +45,10 @@ npm run dev
 
 ## How to Use
 
+The header has two tabs: **Sync Canonical** and **Distribute File**. Pick the mode that fits the job.
+
+### Sync Canonical (one source of truth for CLAUDE.md)
+
 1. **Paste your canonical CLAUDE.md** into the left editor.
 2. Click **Save Canonical** (or press `Cmd+S`) &mdash; persists to `~/claude-md-updater/canonical.md`.
 3. Click **Scan Repos** &mdash; fetches all your non-archived GitHub repos and diffs each one.
@@ -54,6 +61,20 @@ npm run dev
 6. Click **Update All Out-of-Sync** to push canonical to every repo that differs &mdash; or click **Update** on individual repo cards.
 
 All pushes go to the default branch of each repo. No branches, no PRs. Pushes that would be no-ops are skipped automatically.
+
+### Distribute File (introduce a new .md to selected repos)
+
+Use this when you want to seed a brand-new file like `AGENTS.md`, `SECURITY.md`, or `docs/CONTRIBUTING.md` into a chosen set of repos.
+
+1. Switch to the **Distribute File** tab. Your repos auto-load the first time.
+2. Enter the **Filename** (must end in `.md`; nested paths like `docs/AGENTS.md` are allowed).
+3. Optionally enter a custom **Commit Message**. Default is `chore: add <filename> [automated]`.
+4. Paste the **file content** into the textarea.
+5. Tick the repos you want to receive the file. Use the **filter** plus **Select All** / **Clear** to manage large lists.
+6. By default, **existing files are skipped** &mdash; this mode is meant for *new* files. If you want to replace an existing file, tick **Overwrite if exists**.
+7. Click **Push to N Repos**. Each repo card updates with **Created**, **Updated**, **Skipped**, or **Error**.
+
+Same rules as canonical sync apply: pushes go straight to the default branch, no PRs, identical content is a no-op.
 
 ## Architecture
 
@@ -87,6 +108,8 @@ All endpoints are local-only.
 | POST   | `/api/canonical` | Saves canonical (rejects empty / non-string).                |
 | GET    | `/api/scan`      | SSE stream of per-repo scan results.                         |
 | POST   | `/api/update`    | Pushes canonical to `[{repo, defaultBranch}]`; idempotent.   |
+| GET    | `/api/repos`     | Returns the user's non-archived repos for the distribute UI. |
+| POST   | `/api/distribute`| Pushes `{filename, content}` to `[{repo, defaultBranch}]`. Skips existing files unless `overwrite: true`. |
 | GET    | `/api/log`       | Polled log entries (`?since=<id>` for incremental fetch).    |
 
 ## Logs

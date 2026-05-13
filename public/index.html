@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CLAUDE.md Manager</title>
+  <title>md_md &mdash; CLAUDE.md Manager</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%237b61ff'/%3E%3Ctext x='8' y='12' font-family='monospace' font-size='10' font-weight='700' text-anchor='middle' fill='white'%3Em%3C/text%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -17,14 +17,21 @@
     <div class="brand-mark" aria-hidden="true">m</div>
     <h1>CLAUDE.md Manager</h1>
   </div>
+  <nav class="tabs" role="tablist" aria-label="Mode">
+    <button type="button" class="tab active" id="tab-sync" role="tab" aria-selected="true" aria-controls="view-sync">Sync Canonical</button>
+    <button type="button" class="tab" id="tab-distribute" role="tab" aria-selected="false" aria-controls="view-distribute">Distribute File</button>
+  </nav>
   <span class="badge-host" id="host-badge">localhost:3333</span>
   <span class="spacer"></span>
   <span class="scanning-indicator" id="scanning-label" role="status" aria-live="polite" hidden>
     <span class="dot"></span>Scanning&hellip;
   </span>
+  <span class="scanning-indicator" id="distribute-label" role="status" aria-live="polite" hidden>
+    <span class="dot"></span>Distributing&hellip;
+  </span>
 </header>
 
-<main class="main" role="main">
+<main class="main" id="view-sync" role="tabpanel" aria-labelledby="tab-sync">
 
   <section class="editor-panel" aria-label="Canonical editor">
     <div class="panel-header">
@@ -74,6 +81,83 @@
         <div class="empty-state-icon" aria-hidden="true">&#9633;</div>
         <div class="empty-state-title">No scan yet</div>
         <div class="empty-state-body">Save your canonical content, then click Scan Repos.</div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<main class="main main-distribute" id="view-distribute" role="tabpanel" aria-labelledby="tab-distribute" hidden>
+
+  <section class="editor-panel" aria-label="New markdown file">
+    <div class="panel-header">
+      <span class="panel-title">New .md File</span>
+      <span class="byte-count" id="distribute-byte-count" aria-live="polite">0 bytes</span>
+    </div>
+    <div class="distribute-fields">
+      <label class="field-label" for="distribute-filename">Filename</label>
+      <input
+        type="text"
+        id="distribute-filename"
+        class="text-input"
+        placeholder="AGENTS.md"
+        spellcheck="false"
+        autocomplete="off"
+        autocorrect="off"
+        autocapitalize="off"
+      />
+      <label class="field-label" for="distribute-message">Commit Message <span class="field-hint">(optional)</span></label>
+      <input
+        type="text"
+        id="distribute-message"
+        class="text-input"
+        placeholder="chore: add AGENTS.md [automated]"
+        spellcheck="false"
+        autocomplete="off"
+      />
+    </div>
+    <textarea
+      id="distribute-content"
+      spellcheck="false"
+      autocomplete="off"
+      autocorrect="off"
+      autocapitalize="off"
+      placeholder="Paste or type the .md file content here."
+      aria-label="New markdown file content"
+    ></textarea>
+    <div class="editor-footer">
+      <label class="toggle">
+        <input type="checkbox" id="distribute-overwrite" />
+        <span>Overwrite if exists</span>
+      </label>
+      <span class="spacer"></span>
+      <button class="btn btn-primary" id="btn-distribute" type="button" disabled>Push to 0 Repos</button>
+    </div>
+  </section>
+
+  <section class="results-panel" aria-label="Repository selection">
+    <div class="results-header">
+      <span class="panel-title">Repos</span>
+      <span class="summary-pill pill-green" id="distribute-selected-pill">0 selected</span>
+      <span class="spacer"></span>
+      <div class="filter-group">
+        <input
+          type="search"
+          id="distribute-filter"
+          class="filter-input"
+          placeholder="Filter repos&hellip;"
+          aria-label="Filter repos"
+        />
+        <button class="btn btn-ghost btn-sm" id="btn-select-all" type="button">Select All</button>
+        <button class="btn btn-ghost btn-sm" id="btn-select-none" type="button">Clear</button>
+        <button class="btn btn-ghost btn-sm" id="btn-reload-repos" type="button">Reload</button>
+      </div>
+    </div>
+    <div class="results-list" id="distribute-repo-list" aria-live="polite">
+      <div class="empty-state">
+        <div class="empty-state-icon" aria-hidden="true">&#9633;</div>
+        <div class="empty-state-title">No repos loaded</div>
+        <div class="empty-state-body">Click Reload to fetch your GitHub repos.</div>
       </div>
     </div>
   </section>
