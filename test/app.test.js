@@ -334,6 +334,340 @@ test('app handles malformed JSON body gracefully', async (t) => {
   assert.equal(r.json.ok, false);
 });
 
+test('GET /api/repos returns the user repo list', async (t) => {
+  const { storage, logger } = freshSetup();
+  const app = createApp({
+    storage,
+    logger,
+    github: makeGithubMock({
+      getUser: () => 'me',
+      listRepos: () => [
+        { nameWithOwner: 'me/a', defaultBranch: 'main' },
+        { nameWithOwner: 'me/b', defaultBranch: 'master' },
+      ],
+    }),
+    publicDir: '/tmp',
+  });
+  const { server, port } = await startTestServer(app);
+  t.after(() => server.close());
+
+  const r = await request(port, { path: '/api/repos', method: 'GET' });
+  assert.equal(r.status, 200);
+  assert.equal(r.json.ok, true);
+  assert.equal(r.json.user, 'me');
+  assert.equal(r.json.repos.length, 2);
+  assert.equal(r.json.repos[0].nameWithOwner, 'me/a');
+});
+
+test('GET /api/repos surfaces gh auth failure', async (t) => {
+  const { storage, logger } = freshSetup();
+  const app = createApp({
+    storage,
+    logger,
+    github: makeGithubMock({
+      ensureAuth: () => { throw new Error('gh CLI not authenticated. Run `gh auth login`.'); },
+    }),
+    publicDir: '/tmp',
+  });
+  const { server, port } = await startTestServer(app);
+  t.after(() => server.close());
+
+  const r = await request(port, { path: '/api/repos', method: 'GET' });
+  assert.equal(r.status, 500);
+  assert.equal(r.json.ok, false);
+  assert.match(r.json.error, /not authenticated/);
+});
+
+test('POST /api/distribute rejects missing filename', async (t) => {
+  const { storage, logger } = freshSetup();
+  const app = createApp({ storage, logger, github: makeGithubMock(), publicDir: '/tmp' });
+  const { server, port } = await startTestServer(app);
+  t.after(() => server.close());
+
+  const r = await request(port, { path: '/api/distribute', method: 'POST' }, {
+    content: 'x',
+    repos: [{ repo: 'me/r', defaultBranch: 'main' }],
+  });
+  assert.equal(r.status, 400);
+  assert.equal(r.json.ok, false);
+});
+
+test('POST /api/distribute rejects filename without .md suffix', async (t) => {
+  const { storage, logger } = freshSetup();
+  const app = createApp({ storage, logger, github: makeGithubMock(), publicDir: '/tmp' });
+  const { server, port } = await startTestServer(app);
+  t.after(() => server.close());
+
+  const r = await request(port, { path: '/api/distribute', method: 'POST' }, {
+    filename: 'AGENTS.txt',
+    content: 'x',
+    repos: [{ repo: 'me/r', defaultBranch: 'main' }],
+  });
+  assert.equal(r.status, 400);
+  assert.match(r.json.error, /\.md/);
+});
+
+test('POST /api/distribute rejects path traversal in filename', async (t) => {
+  const { storage, logger } = freshSetup();
+  const app = createApp({ storage, logger, github: makeGithubMock(), publicDir: '/tmp' });
+  const { server, port } = await startTestServer(app);
+  t.after(() => server.close());
+
+  const r = await request(port, { path: '/api/distribute', method: 'POST' }, {
+    filename: '../escape.md',
+    content: 'x',
+    repos: [{ repo: 'me/r', defaultBranch: 'main' }],
+  });
+  assert.equal(r.status, 400);
+});
+
+test('POST /api/distribute rejects empty repos array', async (t) => {
+  const { storage, logger } = freshSetup();
+  const app = createApp({ storage, logger, github: makeGithubMock(), publicDir: '/tmp' });
+  const { server, port } = await startTestServer(app);
+  t.after(() => server.close());
+
+  const r = await request(port, { path: '/api/distribute', method: 'POST' }, {
+    filename: 'AGENTS.md',
+    content: 'x',
+    repos: [],
+  });
+  assert.equal(r.status, 400);
+});
+
+test('POST /api/distribute rejects null/non-object repo entries', async (t) => {
+  const { storage, logger } = freshSetup();
+  const app = createApp({ storage, logger, github: makeGithubMock(), publicDir: '/tmp' });
+  const { server, port } = await startTestServer(app);
+  t.after(() => server.close());
+
+  const r = await request(port, { path: '/api/distribute', method: 'POST' }, {
+    filename: 'AGENTS.md',
+    content: 'x',
+    repos: [null],
+  });
+  assert.equal(r.status, 400);
+  assert.match(r.json.error, /repos\[0\]/);
+});
+
+test('POST /api/distribute rejects repo entries missing .repo field', async (t) => {
+  const { storage, logger } = freshSetup();
+  const app = createApp({ storage, logger, github: makeGithubMock(), publicDir: '/tmp' });
+  const { server, port } = await startTestServer(app);
+  t.after(() => server.close());
+
+  const r = await request(port, { path: '/api/distribute', method: 'POST' }, {
+    filename: 'AGENTS.md',
+    content: 'x',
+    repos: [{}, { defaultBranch: 'main' }],
+  });
+  assert.equal(r.status, 400);
+  assert.match(r.json.error, /repos\[0\]\.repo/);
+});
+
+test('POST /api/distribute rejects repo entries not in owner/name form', async (t) => {
+  const { storage, logger } = freshSetup();
+  const app = createApp({ storage, logger, github: makeGithubMock(), publicDir: '/tmp' });
+  const { server, port } = await startTestServer(app);
+  t.after(() => server.close());
+
+  const r = await request(port, { path: '/api/distribute', method: 'POST' }, {
+    filename: 'AGENTS.md',
+    content: 'x',
+    repos: [{ repo: 'no-slash' }],
+  });
+  assert.equal(r.status, 400);
+  assert.match(r.json.error, /owner\/name/);
+});
+
+test('POST /api/update rejects null/non-object repo entries', async (t) => {
+  const { storage, logger } = freshSetup();
+  storage.writeCanonical('content');
+  const app = createApp({ storage, logger, github: makeGithubMock(), publicDir: '/tmp' });
+  const { server, port } = await startTestServer(app);
+  t.after(() => server.close());
+
+  const r = await request(port, { path: '/api/update', method: 'POST' }, {
+    repos: [null],
+  });
+  assert.equal(r.status, 400);
+  assert.match(r.json.error, /repos\[0\]/);
+});
+
+test('POST /api/update rejects malformed repo names', async (t) => {
+  const { storage, logger } = freshSetup();
+  storage.writeCanonical('content');
+  const app = createApp({ storage, logger, github: makeGithubMock(), publicDir: '/tmp' });
+  const { server, port } = await startTestServer(app);
+  t.after(() => server.close());
+
+  const r = await request(port, { path: '/api/update', method: 'POST' }, {
+    repos: [{ repo: '' }],
+  });
+  assert.equal(r.status, 400);
+});
+
+test('POST /api/distribute trims repo entries and uses main as default branch', async (t) => {
+  const { storage, logger } = freshSetup();
+  const putCalls = [];
+  const app = createApp({
+    storage,
+    logger,
+    github: makeGithubMock({
+      getFileContent: () => ({ exists: false, content: null, sha: null }),
+      putFileContent: (repo, file, payload) => putCalls.push({ repo, file, payload }),
+    }),
+    publicDir: '/tmp',
+  });
+  const { server, port } = await startTestServer(app);
+  t.after(() => server.close());
+
+  const r = await request(port, { path: '/api/distribute', method: 'POST' }, {
+    filename: 'AGENTS.md',
+    content: 'x',
+    repos: [{ repo: '  me/r  ' }],
+  });
+  assert.equal(r.status, 200);
+  assert.equal(r.json.results[0].repo, 'me/r');
+  assert.equal(r.json.results[0].defaultBranch, 'main');
+  assert.equal(putCalls[0].payload.branch, 'main');
+});
+
+test('POST /api/distribute pushes a new file to repos', async (t) => {
+  const { storage, logger } = freshSetup();
+  const putCalls = [];
+  const app = createApp({
+    storage,
+    logger,
+    github: makeGithubMock({
+      getFileContent: () => ({ exists: false, content: null, sha: null }),
+      putFileContent: (repo, file, payload) => putCalls.push({ repo, file, payload }),
+    }),
+    publicDir: '/tmp',
+  });
+  const { server, port } = await startTestServer(app);
+  t.after(() => server.close());
+
+  const r = await request(port, { path: '/api/distribute', method: 'POST' }, {
+    filename: 'AGENTS.md',
+    content: 'agent rules',
+    repos: [
+      { repo: 'me/a', defaultBranch: 'main' },
+      { repo: 'me/b', defaultBranch: 'main' },
+    ],
+  });
+  assert.equal(r.status, 200);
+  assert.equal(r.json.ok, true);
+  assert.equal(r.json.filename, 'AGENTS.md');
+  assert.equal(r.json.commitMessage, 'chore: add AGENTS.md [automated]');
+  assert.equal(r.json.results.length, 2);
+  assert.ok(r.json.results.every((res) => res.action === 'created'));
+  assert.equal(putCalls.length, 2);
+  assert.equal(putCalls[0].file, 'AGENTS.md');
+});
+
+test('POST /api/distribute skips existing files when overwrite is off', async (t) => {
+  const { storage, logger } = freshSetup();
+  const putCalls = [];
+  const app = createApp({
+    storage,
+    logger,
+    github: makeGithubMock({
+      getFileContent: () => ({ exists: true, content: 'existing', sha: 'sha1' }),
+      putFileContent: (repo, file, payload) => putCalls.push({ repo, file, payload }),
+    }),
+    publicDir: '/tmp',
+  });
+  const { server, port } = await startTestServer(app);
+  t.after(() => server.close());
+
+  const r = await request(port, { path: '/api/distribute', method: 'POST' }, {
+    filename: 'AGENTS.md',
+    content: 'new content',
+    repos: [{ repo: 'me/a', defaultBranch: 'main' }],
+  });
+  assert.equal(r.status, 200);
+  assert.equal(r.json.results[0].action, 'skipped');
+  assert.equal(putCalls.length, 0);
+});
+
+test('POST /api/distribute overwrites when flag set', async (t) => {
+  const { storage, logger } = freshSetup();
+  const putCalls = [];
+  const app = createApp({
+    storage,
+    logger,
+    github: makeGithubMock({
+      getFileContent: () => ({ exists: true, content: 'existing', sha: 'sha1' }),
+      putFileContent: (repo, file, payload) => putCalls.push({ repo, file, payload }),
+    }),
+    publicDir: '/tmp',
+  });
+  const { server, port } = await startTestServer(app);
+  t.after(() => server.close());
+
+  const r = await request(port, { path: '/api/distribute', method: 'POST' }, {
+    filename: 'AGENTS.md',
+    content: 'replaced',
+    overwrite: true,
+    repos: [{ repo: 'me/a', defaultBranch: 'main' }],
+  });
+  assert.equal(r.json.results[0].action, 'updated');
+  assert.equal(putCalls.length, 1);
+  assert.equal(putCalls[0].payload.sha, 'sha1');
+  assert.equal(putCalls[0].payload.content, 'replaced');
+});
+
+test('POST /api/distribute uses custom commit message when provided', async (t) => {
+  const { storage, logger } = freshSetup();
+  const putCalls = [];
+  const app = createApp({
+    storage,
+    logger,
+    github: makeGithubMock({
+      getFileContent: () => ({ exists: false, content: null, sha: null }),
+      putFileContent: (repo, file, payload) => putCalls.push({ repo, file, payload }),
+    }),
+    publicDir: '/tmp',
+  });
+  const { server, port } = await startTestServer(app);
+  t.after(() => server.close());
+
+  const r = await request(port, { path: '/api/distribute', method: 'POST' }, {
+    filename: 'AGENTS.md',
+    content: 'x',
+    commitMessage: 'docs: introduce agents guide',
+    repos: [{ repo: 'me/a', defaultBranch: 'main' }],
+  });
+  assert.equal(r.json.commitMessage, 'docs: introduce agents guide');
+  assert.equal(putCalls[0].payload.message, 'docs: introduce agents guide');
+});
+
+test('POST /api/distribute accepts nested .md paths like docs/AGENTS.md', async (t) => {
+  const { storage, logger } = freshSetup();
+  const putCalls = [];
+  const app = createApp({
+    storage,
+    logger,
+    github: makeGithubMock({
+      getFileContent: () => ({ exists: false, content: null, sha: null }),
+      putFileContent: (repo, file, payload) => putCalls.push({ repo, file, payload }),
+    }),
+    publicDir: '/tmp',
+  });
+  const { server, port } = await startTestServer(app);
+  t.after(() => server.close());
+
+  const r = await request(port, { path: '/api/distribute', method: 'POST' }, {
+    filename: 'docs/AGENTS.md',
+    content: 'x',
+    repos: [{ repo: 'me/a', defaultBranch: 'main' }],
+  });
+  assert.equal(r.status, 200);
+  assert.equal(r.json.filename, 'docs/AGENTS.md');
+  assert.equal(putCalls[0].file, 'docs/AGENTS.md');
+});
+
 test('static files are served from publicDir', async (t) => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-md-pub-'));
   const publicDir = path.join(dataDir, 'public');

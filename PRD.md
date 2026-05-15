@@ -1,7 +1,9 @@
-# CLAUDE.md Manager — PRD v1.0
+# CLAUDE.md Manager — PRD v1.1
 
 ## What This Is
-A local Node.js web app that lets you define a canonical `CLAUDE.md`, diffs it against every GitHub repo you own, shows which repos are out of sync, and lets you push updates directly to `main` in one click.
+A local Node.js web app that manages markdown files across your GitHub repos. It has two modes:
+1. **Sync Canonical** &mdash; define a canonical `CLAUDE.md`, diff it against every repo, push to bring out-of-sync repos into alignment in one click.
+2. **Distribute File** &mdash; introduce any new `.md` file (e.g., `AGENTS.md`, `SECURITY.md`, `docs/CONTRIBUTING.md`) to a hand-picked set of repos in one shot.
 
 ## Who It's For
 Chris Treadaway, running locally on Mac. Single user, no auth needed.
@@ -38,7 +40,18 @@ Chris Treadaway, running locally on Mac. Single user, no auth needed.
 - Each update: commits directly to default branch (main), no new branch, no PR
 - Commit message: `chore: sync CLAUDE.md to canonical [automated]`
 
-### 5. Activity Log
+### 5. Distribute File (one-shot multi-repo add)
+- Mode toggle at top of UI: "Sync Canonical" | "Distribute File"
+- Filename input &mdash; must end in `.md`, nested paths like `docs/AGENTS.md` allowed
+- Content textarea &mdash; not persisted between sessions (one-shot use)
+- Commit message input &mdash; defaults to `chore: add {filename} [automated]`, user-editable
+- Repo picker &mdash; checkbox list of all non-archived repos, with filter + Select All / Clear
+- "Overwrite if exists" toggle &mdash; default OFF (skip repos where file already exists)
+- "Push to N Repos" button &mdash; one-shot bulk push
+- Per-repo result badges: Created / Updated / Skipped / Error
+- Identical content is always a no-op even with Overwrite on
+
+### 6. Activity Log
 - Scrollable log panel at bottom of UI
 - Every action logged: scan start/end, per-repo status, push success/fail
 - Errors shown in red
@@ -46,9 +59,21 @@ Chris Treadaway, running locally on Mac. Single user, no auth needed.
 
 ## Business Rules
 - Idempotent: pushing canonical to an already-in-sync repo is a no-op
-- If a repo push fails (e.g. branch protection), log error and continue — do not crash
+- If a repo push fails (e.g. branch protection), log error and continue &mdash; do not crash
 - Canonical content stored at `~/claude-md-updater/canonical.md`
 - App runs on `http://localhost:3333`
+
+### Distribute File validation
+- Filenames must match `[A-Za-z0-9._\-/]+\.md` and must not start with `/` or contain `..` &mdash; rejected with 400
+- Every repo target must be a non-empty string in `owner/name` form &mdash; rejected with 400
+- Content must be a non-empty string &mdash; rejected with 400
+- Validation applies on both `/api/update` and `/api/distribute` so malformed payloads cannot reach the GitHub client
+
+### Race safety
+- Double-clicking the push button is a no-op &mdash; second invocation returns immediately
+- During an in-flight distribute push, the filename input, content textarea, commit-message input, overwrite toggle, Select All / Clear / Reload buttons, and every repo checkbox are disabled
+- Manual Reload during a push is blocked
+- On a successful repo reload, selections and per-repo status badges for repos that disappeared (renamed/archived) are dropped so the &ldquo;N selected&rdquo; pill never lies
 
 ## Tech Stack
 - Backend: Node.js + Express
@@ -75,8 +100,8 @@ Chris Treadaway, running locally on Mac. Single user, no auth needed.
 ## Out of Scope
 - Multi-user support
 - Branch management or PR creation
-- Modifying any file other than CLAUDE.md
-- Web hosting — local only
+- Modifying any file that does not end in `.md` (the validator rejects other extensions)
+- Web hosting &mdash; local only
 
 ## Security & NPM Hygiene (Applied to This Project)
 - Use `sfw npm install` for all installs

@@ -1,6 +1,13 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { scanRepos, pushCanonical, pushMany } = require('../lib/scanner');
+const {
+  scanRepos,
+  pushCanonical,
+  pushMany,
+  distributeFile,
+  distributeMany,
+  buildDistributeCommitMessage,
+} = require('../lib/scanner');
 const { STATUS } = require('../lib/diff-status');
 
 function makeGithub({ contents = {}, putBehavior } = {}) {
@@ -151,6 +158,125 @@ test('pushCanonical returns error on push failure', () => {
   });
   assert.equal(result.ok, false);
   assert.match(result.error, /push failed/);
+});
+
+test('distributeFile creates new file when missing', () => {
+  const github = makeGithub({ contents: {} });
+  const result = distributeFile({
+    github,
+    repo: 'me/r',
+    defaultBranch: 'main',
+    filename: 'AGENTS.md',
+    content: 'agent rules',
+    commitMessage: 'chore: add AGENTS.md [automated]',
+    overwrite: false,
+    logger: fakeLogger(),
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.action, 'created');
+  assert.equal(github.putCalls.length, 1);
+  assert.equal(github.putCalls[0].filePath, 'AGENTS.md');
+  assert.equal(github.putCalls[0].payload.content, 'agent rules');
+  assert.equal(github.putCalls[0].payload.sha, null);
+});
+
+test('distributeFile skips when file exists and overwrite is off', () => {
+  const github = makeGithub({ contents: { 'me/r': 'existing content' } });
+  const result = distributeFile({
+    github,
+    repo: 'me/r',
+    defaultBranch: 'main',
+    filename: 'AGENTS.md',
+    content: 'new content',
+    commitMessage: 'chore: add AGENTS.md [automated]',
+    overwrite: false,
+    logger: fakeLogger(),
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.action, 'skipped');
+  assert.equal(result.existed, true);
+  assert.equal(github.putCalls.length, 0);
+});
+
+test('distributeFile updates when file exists and overwrite is on', () => {
+  const github = makeGithub({ contents: { 'me/r': 'existing' } });
+  const result = distributeFile({
+    github,
+    repo: 'me/r',
+    defaultBranch: 'main',
+    filename: 'AGENTS.md',
+    content: 'fresh',
+    commitMessage: 'chore: update AGENTS.md',
+    overwrite: true,
+    logger: fakeLogger(),
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.action, 'updated');
+  assert.equal(github.putCalls.length, 1);
+  assert.equal(github.putCalls[0].payload.sha, 'sha-me/r');
+  assert.equal(github.putCalls[0].payload.content, 'fresh');
+  assert.equal(github.putCalls[0].payload.message, 'chore: update AGENTS.md');
+});
+
+test('distributeFile skips when overwrite on but content already identical', () => {
+  const github = makeGithub({ contents: { 'me/r': 'same' } });
+  const result = distributeFile({
+    github,
+    repo: 'me/r',
+    defaultBranch: 'main',
+    filename: 'AGENTS.md',
+    content: 'same',
+    commitMessage: 'chore',
+    overwrite: true,
+    logger: fakeLogger(),
+  });
+  assert.equal(result.action, 'skipped');
+  assert.equal(github.putCalls.length, 0);
+});
+
+test('distributeFile returns error on push failure', () => {
+  const github = makeGithub({ contents: {}, putBehavior: { 'me/r': 'fail' } });
+  const result = distributeFile({
+    github,
+    repo: 'me/r',
+    defaultBranch: 'main',
+    filename: 'AGENTS.md',
+    content: 'x',
+    commitMessage: 'chore: add',
+    overwrite: false,
+    logger: fakeLogger(),
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /push failed/);
+});
+
+test('distributeMany handles mix of created, skipped, and failed', () => {
+  const github = makeGithub({
+    contents: { 'me/b': 'existing', 'me/c': 'old' },
+    putBehavior: { 'me/c': 'fail' },
+  });
+  const results = distributeMany({
+    github,
+    filename: 'AGENTS.md',
+    content: 'rules',
+    commitMessage: 'chore: add AGENTS.md [automated]',
+    overwrite: true,
+    targets: [
+      { repo: 'me/a', defaultBranch: 'main' },
+      { repo: 'me/b', defaultBranch: 'main' },
+      { repo: 'me/c', defaultBranch: 'main' },
+    ],
+    logger: fakeLogger(),
+  });
+  assert.equal(results.length, 3);
+  assert.equal(results.find((r) => r.repo === 'me/a').action, 'created');
+  assert.equal(results.find((r) => r.repo === 'me/b').action, 'updated');
+  assert.equal(results.find((r) => r.repo === 'me/c').ok, false);
+});
+
+test('buildDistributeCommitMessage uses filename in default message', () => {
+  assert.equal(buildDistributeCommitMessage('AGENTS.md'), 'chore: add AGENTS.md [automated]');
+  assert.equal(buildDistributeCommitMessage('docs/SECURITY.md'), 'chore: add docs/SECURITY.md [automated]');
 });
 
 test('pushMany continues after individual failures', () => {

@@ -10,6 +10,16 @@
     filterText: '',
     saveTimer: null,
     toastTimer: null,
+    activeView: 'sync',
+    distribute: {
+      repos: [],
+      selected: new Set(),
+      filterText: '',
+      loaded: false,
+      loading: false,
+      pushing: false,
+      statusByRepo: new Map(),
+    },
   };
 
   // ── Elements ─────────────────────────────────────────────────────────
@@ -26,6 +36,7 @@
     logCount: $('log-count'),
     logAutoscroll: $('log-autoscroll'),
     scanningLabel: $('scanning-label'),
+    distributingLabel: $('distribute-label'),
     pillSync: $('pill-sync'),
     pillDiff: $('pill-diff'),
     pillMiss: $('pill-miss'),
@@ -35,6 +46,22 @@
     saveStatus: $('save-status'),
     toast: $('toast'),
     hostBadge: $('host-badge'),
+    tabSync: $('tab-sync'),
+    tabDistribute: $('tab-distribute'),
+    viewSync: $('view-sync'),
+    viewDistribute: $('view-distribute'),
+    distributeFilename: $('distribute-filename'),
+    distributeMessage: $('distribute-message'),
+    distributeContent: $('distribute-content'),
+    distributeByteCount: $('distribute-byte-count'),
+    distributeOverwrite: $('distribute-overwrite'),
+    btnDistribute: $('btn-distribute'),
+    btnSelectAll: $('btn-select-all'),
+    btnSelectNone: $('btn-select-none'),
+    btnReloadRepos: $('btn-reload-repos'),
+    distributeRepoList: $('distribute-repo-list'),
+    distributeFilter: $('distribute-filter'),
+    distributeSelectedPill: $('distribute-selected-pill'),
   };
 
   // ── Utilities ────────────────────────────────────────────────────────
@@ -472,6 +499,237 @@
     }
   }
 
+  // ── Tab switching ────────────────────────────────────────────────────
+  function setView(view) {
+    state.activeView = view;
+    const onSync = view === 'sync';
+    els.tabSync.classList.toggle('active', onSync);
+    els.tabDistribute.classList.toggle('active', !onSync);
+    els.tabSync.setAttribute('aria-selected', String(onSync));
+    els.tabDistribute.setAttribute('aria-selected', String(!onSync));
+    els.viewSync.hidden = !onSync;
+    els.viewDistribute.hidden = onSync;
+    if (!onSync && !state.distribute.loaded && !state.distribute.loading) {
+      loadRepos();
+    }
+  }
+
+  // ── Distribute: repo list ────────────────────────────────────────────
+  async function loadRepos() {
+    if (state.distribute.loading || state.distribute.pushing) return;
+    state.distribute.loading = true;
+    els.btnReloadRepos.disabled = true;
+    els.distributeRepoList.innerHTML = '<div class="empty-state"><div class="empty-state-icon" aria-hidden="true">&hellip;</div><div class="empty-state-title">Loading&hellip;</div><div class="empty-state-body">Fetching your GitHub repos.</div></div>';
+    try {
+      const r = await fetch('/api/repos');
+      const d = await r.json();
+      if (!r.ok || !d.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      state.distribute.repos = d.repos || [];
+      state.distribute.loaded = true;
+      const liveNames = new Set(state.distribute.repos.map((x) => x.nameWithOwner));
+      for (const name of [...state.distribute.selected]) {
+        if (!liveNames.has(name)) state.distribute.selected.delete(name);
+      }
+      for (const name of [...state.distribute.statusByRepo.keys()]) {
+        if (!liveNames.has(name)) state.distribute.statusByRepo.delete(name);
+      }
+      renderRepoList();
+      showToast(`Loaded ${state.distribute.repos.length} repos`, 'success');
+    } catch (err) {
+      els.distributeRepoList.innerHTML = '';
+      const empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.innerHTML = `<div class="empty-state-icon" aria-hidden="true">!</div><div class="empty-state-title">Failed to load repos</div><div class="empty-state-body">${escapeHtml(err.message)}</div>`;
+      els.distributeRepoList.appendChild(empty);
+      showToast(`Failed to load repos: ${err.message}`, 'error');
+    } finally {
+      state.distribute.loading = false;
+      els.btnReloadRepos.disabled = false;
+    }
+  }
+
+  function renderRepoList() {
+    const list = els.distributeRepoList;
+    list.innerHTML = '';
+    const repos = state.distribute.repos;
+    if (repos.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.innerHTML = '<div class="empty-state-icon" aria-hidden="true">&#9633;</div><div class="empty-state-title">No repos</div><div class="empty-state-body">No non-archived repos found for this user.</div>';
+      list.appendChild(empty);
+      return;
+    }
+    const q = state.distribute.filterText.toLowerCase().trim();
+    let shown = 0;
+    for (const repo of repos) {
+      const name = repo.nameWithOwner;
+      const matches = !q || name.toLowerCase().includes(q);
+      if (!matches) continue;
+      shown++;
+      const row = document.createElement('label');
+      row.className = 'repo-row';
+      row.dataset.repo = name;
+
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = state.distribute.selected.has(name);
+      cb.addEventListener('change', () => {
+        if (cb.checked) state.distribute.selected.add(name);
+        else state.distribute.selected.delete(name);
+        updateDistributeControls();
+      });
+
+      const text = document.createElement('span');
+      text.className = 'repo-name';
+      text.textContent = name;
+
+      const branch = document.createElement('span');
+      branch.className = 'repo-branch';
+      branch.textContent = repo.defaultBranch;
+
+      const status = document.createElement('span');
+      status.className = 'repo-row-status';
+      const s = state.distribute.statusByRepo.get(name);
+      if (s) {
+        const { badgeClass, badgeLabel } = distributeStatusBadge(s);
+        status.className = `status-badge ${badgeClass}`;
+        status.textContent = badgeLabel;
+      }
+
+      row.appendChild(cb);
+      row.appendChild(text);
+      row.appendChild(branch);
+      row.appendChild(status);
+      list.appendChild(row);
+    }
+    if (shown === 0 && q) {
+      const empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.innerHTML = `<div class="empty-state-icon" aria-hidden="true">&#9633;</div><div class="empty-state-title">No matches</div><div class="empty-state-body">No repos match &ldquo;${escapeHtml(q)}&rdquo;.</div>`;
+      list.appendChild(empty);
+    }
+    updateDistributeControls();
+  }
+
+  function distributeStatusBadge(s) {
+    switch (s.action) {
+      case 'created': return { badgeClass: 'badge-sync', badgeLabel: 'Created' };
+      case 'updated': return { badgeClass: 'badge-diff', badgeLabel: 'Updated' };
+      case 'skipped': return { badgeClass: 'badge-pushing', badgeLabel: 'Skipped' };
+      case 'pushing': return { badgeClass: 'badge-pushing', badgeLabel: 'Pushing...' };
+      case 'error': return { badgeClass: 'badge-error', badgeLabel: 'Error' };
+      default: return { badgeClass: 'badge-pushing', badgeLabel: s.action };
+    }
+  }
+
+  function updateDistributeControls() {
+    const count = state.distribute.selected.size;
+    els.distributeSelectedPill.textContent = `${count} selected`;
+    const filename = els.distributeFilename.value.trim();
+    const content = els.distributeContent.value;
+    const pushing = state.distribute.pushing;
+    const ready = count > 0 && filename.length > 0 && content.trim().length > 0 && !pushing;
+    els.btnDistribute.disabled = !ready;
+    els.btnDistribute.textContent = `Push to ${count} ${count === 1 ? 'Repo' : 'Repos'}`;
+    els.distributeByteCount.textContent = formatBytes(byteLength(content));
+    els.btnReloadRepos.disabled = pushing || state.distribute.loading;
+    els.btnSelectAll.disabled = pushing;
+    els.btnSelectNone.disabled = pushing;
+    els.distributeFilename.disabled = pushing;
+    els.distributeMessage.disabled = pushing;
+    els.distributeContent.disabled = pushing;
+    els.distributeOverwrite.disabled = pushing;
+    for (const cb of els.distributeRepoList.querySelectorAll('input[type=checkbox]')) {
+      cb.disabled = pushing;
+    }
+  }
+
+  function distributeFilenameDefaultMessage() {
+    const fn = els.distributeFilename.value.trim();
+    if (!fn) return '';
+    return `chore: add ${fn} [automated]`;
+  }
+
+  // ── Distribute: push ─────────────────────────────────────────────────
+  async function distributePush() {
+    if (state.distribute.pushing) return;
+    const filename = els.distributeFilename.value.trim();
+    const content = els.distributeContent.value;
+    const overwrite = els.distributeOverwrite.checked;
+    const commitMessage = els.distributeMessage.value.trim() || distributeFilenameDefaultMessage();
+    const targets = state.distribute.repos
+      .filter((r) => state.distribute.selected.has(r.nameWithOwner))
+      .map((r) => ({ repo: r.nameWithOwner, defaultBranch: r.defaultBranch }));
+
+    if (targets.length === 0 || !filename || !content.trim()) return;
+    if (!/^[A-Za-z0-9._\-/]+\.md$/.test(filename)) {
+      showToast('Filename must end with .md and contain only letters, digits, ., _, -, /', 'error');
+      return;
+    }
+    if (filename.startsWith('/') || filename.includes('..')) {
+      showToast('Filename must be a relative path without ".."', 'error');
+      return;
+    }
+
+    state.distribute.pushing = true;
+    els.distributingLabel.hidden = false;
+    for (const t of targets) {
+      state.distribute.statusByRepo.set(t.repo, { action: 'pushing' });
+    }
+    renderRepoList();
+    updateDistributeControls();
+
+    let data;
+    try {
+      const r = await fetch('/api/distribute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename, content, commitMessage, overwrite, repos: targets }),
+      });
+      data = await r.json();
+      if (!r.ok || !data.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    } catch (err) {
+      state.distribute.pushing = false;
+      els.distributingLabel.hidden = true;
+      for (const t of targets) {
+        state.distribute.statusByRepo.set(t.repo, { action: 'error', error: err.message });
+      }
+      renderRepoList();
+      updateDistributeControls();
+      showToast(`Distribute failed: ${err.message}`, 'error');
+      return;
+    }
+
+    let created = 0, updated = 0, skipped = 0, failed = 0;
+    for (const res of data.results) {
+      if (!res.ok) {
+        state.distribute.statusByRepo.set(res.repo, { action: 'error', error: res.error });
+        failed++;
+      } else if (res.action === 'created') {
+        state.distribute.statusByRepo.set(res.repo, { action: 'created' });
+        created++;
+      } else if (res.action === 'updated') {
+        state.distribute.statusByRepo.set(res.repo, { action: 'updated' });
+        updated++;
+      } else {
+        state.distribute.statusByRepo.set(res.repo, { action: 'skipped' });
+        skipped++;
+      }
+    }
+
+    state.distribute.pushing = false;
+    els.distributingLabel.hidden = true;
+    renderRepoList();
+    updateDistributeControls();
+
+    const parts = [];
+    if (created) parts.push(`${created} created`);
+    if (updated) parts.push(`${updated} updated`);
+    if (skipped) parts.push(`${skipped} skipped`);
+    if (failed) parts.push(`${failed} failed`);
+    showToast(`${data.filename}: ${parts.join(', ') || 'no changes'}`, failed ? 'error' : 'success');
+  }
+
   // ── Wire events ──────────────────────────────────────────────────────
   function wire() {
     els.canonical.addEventListener('input', updateByteCount);
@@ -491,9 +749,37 @@
       applyFilter();
     });
 
+    els.tabSync.addEventListener('click', () => setView('sync'));
+    els.tabDistribute.addEventListener('click', () => setView('distribute'));
+
+    els.distributeFilename.addEventListener('input', () => {
+      els.distributeMessage.placeholder = distributeFilenameDefaultMessage() || 'chore: add AGENTS.md [automated]';
+      updateDistributeControls();
+    });
+    els.distributeContent.addEventListener('input', updateDistributeControls);
+    els.distributeFilter.addEventListener('input', (e) => {
+      state.distribute.filterText = e.target.value;
+      renderRepoList();
+    });
+    els.btnSelectAll.addEventListener('click', () => {
+      const q = state.distribute.filterText.toLowerCase().trim();
+      for (const repo of state.distribute.repos) {
+        if (!q || repo.nameWithOwner.toLowerCase().includes(q)) {
+          state.distribute.selected.add(repo.nameWithOwner);
+        }
+      }
+      renderRepoList();
+    });
+    els.btnSelectNone.addEventListener('click', () => {
+      state.distribute.selected.clear();
+      renderRepoList();
+    });
+    els.btnReloadRepos.addEventListener('click', () => loadRepos());
+    els.btnDistribute.addEventListener('click', distributePush);
+
     document.addEventListener('keydown', (e) => {
       const isSave = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's';
-      if (isSave) {
+      if (isSave && state.activeView === 'sync') {
         e.preventDefault();
         saveCanonical();
       }
